@@ -12,7 +12,6 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
     QPixmap,
-    QResizeEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -28,7 +27,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSystemTrayIcon,
     QTableWidget,
@@ -93,7 +91,7 @@ class StatCard(QFrame):
         super().__init__()
         self.setObjectName("card")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setContentsMargins(18, 10, 18, 10)
         layout.setSpacing(4)
         title_label = QLabel(title)
         title_label.setObjectName("muted")
@@ -110,7 +108,7 @@ class HourlyChart(QWidget):
     def __init__(self):
         super().__init__()
         self._values = [0] * 24
-        self.setMinimumHeight(190)
+        self.setMinimumHeight(110)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_values(self, values: tuple[int, ...]) -> None:
@@ -162,7 +160,7 @@ class WeekChart(QWidget):
     def __init__(self):
         super().__init__()
         self._values: list[tuple[date, int]] = []
-        self.setMinimumHeight(145)
+        self.setMinimumHeight(92)
 
     def set_values(self, values: list[tuple[date, int]]) -> None:
         self._values = values
@@ -216,13 +214,12 @@ class DashboardWindow(QMainWindow):
         self.selected_day = date.today()
         self._quitting = False
         self._tray_notice_shown = False
-        self._layout_state: tuple[bool, bool] | None = None
         self.idle_minutes = int(store.get_setting("idle_minutes", "10"))
 
         self.setWindowTitle("MyWorkLog")
         self.setWindowIcon(make_app_icon())
         self.resize(1080, 760)
-        self.setMinimumSize(720, 560)
+        self.setMinimumSize(800, 600)
         self._build_ui()
         self._build_tray()
         self._apply_style()
@@ -237,8 +234,8 @@ class DashboardWindow(QMainWindow):
         page = QWidget()
         page.setObjectName("page")
         self.outer_layout = QVBoxLayout(page)
-        self.outer_layout.setContentsMargins(28, 24, 28, 22)
-        self.outer_layout.setSpacing(18)
+        self.outer_layout.setContentsMargins(20, 18, 20, 16)
+        self.outer_layout.setSpacing(12)
 
         header = QHBoxLayout()
         title_box = QVBoxLayout()
@@ -278,11 +275,10 @@ class DashboardWindow(QMainWindow):
             self.session_card,
             self.range_card,
         )
+        for column, card in enumerate(self.stat_cards):
+            self.cards_layout.addWidget(card, 0, column)
+            self.cards_layout.setColumnStretch(column, 1)
         self.outer_layout.addLayout(self.cards_layout)
-
-        self.content_layout = QGridLayout()
-        self.content_layout.setHorizontalSpacing(14)
-        self.content_layout.setVerticalSpacing(14)
 
         self.hourly_panel = QFrame()
         self.hourly_panel.setObjectName("panel")
@@ -299,6 +295,7 @@ class DashboardWindow(QMainWindow):
         left_layout.addLayout(chart_header)
         self.hourly_chart = HourlyChart()
         left_layout.addWidget(self.hourly_chart)
+        self.outer_layout.addWidget(self.hourly_panel, 3)
 
         self.weekly_panel = QFrame()
         self.weekly_panel.setObjectName("panel")
@@ -309,8 +306,6 @@ class DashboardWindow(QMainWindow):
         right_layout.addWidget(week_title)
         self.week_chart = WeekChart()
         right_layout.addWidget(self.week_chart)
-        self.outer_layout.addLayout(self.content_layout, 3)
-
         self.session_panel = QFrame()
         self.session_panel.setObjectName("panel")
         session_layout = QVBoxLayout(self.session_panel)
@@ -341,19 +336,40 @@ class DashboardWindow(QMainWindow):
         self.session_table.verticalHeader().setVisible(False)
         self.session_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.session_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        self.session_table.setMinimumHeight(110)
+        self.session_table.setMinimumHeight(82)
         self.session_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         session_layout.addWidget(self.session_table)
-        self.outer_layout.addWidget(self.session_panel, 2)
+
+        self.weekly_panel.setMinimumHeight(145)
+        self.weekly_panel.setMaximumHeight(185)
+        self.session_panel.setMinimumHeight(145)
+        self.session_panel.setMaximumHeight(185)
+        self.weekly_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.session_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        lower_container = QWidget()
+        lower_container.setMinimumHeight(145)
+        lower_container.setMaximumHeight(185)
+        lower_row = QHBoxLayout(lower_container)
+        lower_row.setContentsMargins(0, 0, 0, 0)
+        lower_row.setSpacing(12)
+        lower_row.addWidget(self.weekly_panel, 1)
+        lower_row.addWidget(self.session_panel, 2)
+        self.outer_layout.addWidget(lower_container)
 
         self.footer_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.privacy_label = QLabel(
-            "개인정보 보호 · 글자, 좌표, 창 제목은 저장하지 않음 · 10초마다 로컬 저장"
+            "로컬 저장 · 글자, 좌표, 창 제목은 수집하지 않음"
         )
         self.privacy_label.setObjectName("muted")
-        self.privacy_label.setWordWrap(True)
+        self.privacy_label.setWordWrap(False)
         self.privacy_label.setSizePolicy(
-            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
             QSizePolicy.Policy.Preferred,
         )
         self.footer_layout.addWidget(self.privacy_label)
@@ -368,55 +384,7 @@ class DashboardWindow(QMainWindow):
         self.footer_layout.addWidget(self.pause_button)
         self.outer_layout.addLayout(self.footer_layout)
 
-        scroll_area = QScrollArea()
-        scroll_area.setObjectName("dashboardScroll")
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setWidget(page)
-        self.setCentralWidget(scroll_area)
-        self._apply_responsive_layout()
-
-    def _apply_responsive_layout(self) -> None:
-        compact = self.width() < 800
-        narrow = self.width() < 900
-        layout_state = (compact, narrow)
-        if layout_state == self._layout_state:
-            return
-        self._layout_state = layout_state
-
-        for card in self.stat_cards:
-            self.cards_layout.removeWidget(card)
-        if compact:
-            for index, card in enumerate(self.stat_cards):
-                self.cards_layout.addWidget(card, index // 2, index % 2)
-        else:
-            for index, card in enumerate(self.stat_cards):
-                self.cards_layout.addWidget(card, 0, index)
-        for column in range(4):
-            self.cards_layout.setColumnStretch(column, 1 if (not compact or column < 2) else 0)
-
-        self.content_layout.removeWidget(self.hourly_panel)
-        self.content_layout.removeWidget(self.weekly_panel)
-        if compact:
-            self.content_layout.addWidget(self.hourly_panel, 0, 0)
-            self.content_layout.addWidget(self.weekly_panel, 1, 0)
-            self.content_layout.setColumnStretch(0, 1)
-            self.content_layout.setColumnStretch(1, 0)
-        else:
-            self.content_layout.addWidget(self.hourly_panel, 0, 0)
-            self.content_layout.addWidget(self.weekly_panel, 0, 1)
-            self.content_layout.setColumnStretch(0, 2)
-            self.content_layout.setColumnStretch(1, 1)
-
-        self.footer_layout.setDirection(
-            QBoxLayout.Direction.TopToBottom
-            if compact
-            else QBoxLayout.Direction.LeftToRight
-        )
-        self.outer_layout.setSpacing(12 if narrow else 18)
-        margin = 16 if narrow else 28
-        self.outer_layout.setContentsMargins(margin, 20, margin, 18)
+        self.setCentralWidget(page)
 
     def _build_tray(self) -> None:
         self.tray = QSystemTrayIcon(make_app_icon(32), self)
@@ -436,7 +404,7 @@ class DashboardWindow(QMainWindow):
     def _apply_style(self) -> None:
         self.setStyleSheet(
             """
-            QMainWindow, QWidget#page, QScrollArea#dashboardScroll { background: #0b1020; }
+            QMainWindow, QWidget#page { background: #0b1020; }
             QWidget { color: #f3f6ff; font-family: 'Malgun Gothic'; font-size: 13px; }
             QLabel#title { font-size: 27px; font-weight: 700; }
             QLabel#sectionTitle { font-size: 15px; font-weight: 600; }
@@ -464,10 +432,6 @@ class DashboardWindow(QMainWindow):
             QMenu::item:selected { background: #263456; }
             """
         )
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        super().resizeEvent(event)
-        self._apply_responsive_layout()
 
     def _refresh_if_visible(self) -> None:
         if self.isVisible():
