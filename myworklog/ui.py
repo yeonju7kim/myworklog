@@ -224,6 +224,7 @@ class DashboardWindow(QMainWindow):
         self._todos: list[TodoItem] = []
         self._loading_todos = False
         self._loading_sessions = False
+        self._selected_session_start: int | None = None
         self.idle_minutes = int(store.get_setting("idle_minutes", "10"))
 
         self.setWindowTitle("MyWorkLog")
@@ -349,6 +350,15 @@ class DashboardWindow(QMainWindow):
             | QAbstractItemView.EditTrigger.EditKeyPressed
         )
         self.session_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.session_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.session_table.setToolTip(
+            "세션 행을 선택한 뒤 Todo를 체크하면 수행 업무에 추가됩니다."
+        )
+        self.session_table.itemSelectionChanged.connect(
+            self._session_selection_changed
+        )
         self.session_table.itemChanged.connect(self._session_item_changed)
         self.session_table.setMinimumHeight(82)
         self.session_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -382,7 +392,9 @@ class DashboardWindow(QMainWindow):
             QAbstractItemView.EditTrigger.DoubleClicked
             | QAbstractItemView.EditTrigger.EditKeyPressed
         )
-        self.todo_list.setToolTip("체크하면 현재 업무 세션에 기록 · 더블클릭하면 이름 수정")
+        self.todo_list.setToolTip(
+            "체크하면 선택한 업무 세션에 기록 · 더블클릭하면 이름 수정"
+        )
         self.todo_list.itemChanged.connect(self._todo_item_changed)
         self.todo_list.currentItemChanged.connect(
             lambda current, _previous: self.delete_todo_button.setEnabled(
@@ -494,6 +506,7 @@ class DashboardWindow(QMainWindow):
             QTableWidget { background: transparent; border: 0; gridline-color: #25304a; alternate-background-color: #11182a; }
             QHeaderView::section { background: #1b2540; color: #aab4c8; border: 0; border-bottom: 1px solid #33405e; padding: 7px; }
             QTableWidget::item { padding: 6px; border-bottom: 1px solid #202a42; }
+            QTableWidget::item:selected { background: #31436d; color: #ffffff; }
             QListWidget { background: transparent; border: 0; outline: 0; }
             QListWidget::item { padding: 4px 2px; border-bottom: 1px solid #202a42; }
             QListWidget::item:hover { background: #1b2540; }
@@ -569,6 +582,11 @@ class DashboardWindow(QMainWindow):
         notes = self.store.get_session_notes(
             session.start for session in stats.sessions
         )
+        session_starts = [session.start for session in stats.sessions]
+        if self._selected_session_start not in session_starts:
+            self._selected_session_start = (
+                session_starts[-1] if session_starts else None
+            )
         self._loading_sessions = True
         try:
             self.session_table.setRowCount(len(stats.sessions))
@@ -597,8 +615,16 @@ class DashboardWindow(QMainWindow):
 
                 note_item = QTableWidgetItem(notes.get(session.start, ""))
                 note_item.setData(Qt.ItemDataRole.UserRole, session.start)
-                note_item.setToolTip("Todo 체크 시 자동 추가 · 더블클릭해서 직접 수정")
+                note_item.setToolTip(
+                    "선택한 세션에는 Todo 체크 시 자동 추가 · 더블클릭해서 직접 수정"
+                )
                 self.session_table.setItem(row_index, 4, note_item)
+
+            if self._selected_session_start is None:
+                self.session_table.clearSelection()
+            else:
+                selected_row = session_starts.index(self._selected_session_start)
+                self.session_table.selectRow(selected_row)
         finally:
             self._loading_sessions = False
 
@@ -691,17 +717,37 @@ class DashboardWindow(QMainWindow):
         if completed != previous_completed:
             self.store.set_todo_completed(todo_id, completed)
             if completed:
-                self._record_todo_in_current_session(title)
+                self._record_todo_in_target_session(title)
         self._refresh_todos(force=True)
         self._refresh()
 
-    def _record_todo_in_current_session(self, title: str) -> None:
-        if self.tracker.mark_app_activity() is None:
+    def _record_todo_in_target_session(self, title: str) -> None:
+        session_start = self._selected_session_start
+        if session_start is None:
+            if self.tracker.mark_app_activity() is None:
+                return
+            self.tracker.flush()
+            today_stats = get_day_stats(
+                self.store, date.today(), self.idle_minutes
+            )
+            if not today_stats.sessions:
+                return
+            session_start = today_stats.sessions[-1].start
+        self.store.append_session_note(session_start, title)
+
+    def _session_selection_changed(self) -> None:
+        if self._loading_sessions:
             return
-        self.tracker.flush()
-        today_stats = get_day_stats(self.store, date.today(), self.idle_minutes)
-        if today_stats.sessions:
-            self.store.append_session_note(today_stats.sessions[-1].start, title)
+        selected_rows = self.session_table.selectionModel().selectedRows()
+        if not selected_rows:
+            self._selected_session_start = None
+            return
+        note_item = self.session_table.item(selected_rows[0].row(), 4)
+        if note_item is not None:
+            session_start = note_item.data(Qt.ItemDataRole.UserRole)
+            self._selected_session_start = (
+                int(session_start) if session_start is not None else None
+            )
 
     def _session_item_changed(self, item: QTableWidgetItem) -> None:
         if self._loading_sessions or item.column() != 4:
