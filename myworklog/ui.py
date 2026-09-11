@@ -306,7 +306,6 @@ class DashboardWindow(QMainWindow):
         left_layout.addLayout(chart_header)
         self.hourly_chart = HourlyChart()
         left_layout.addWidget(self.hourly_chart)
-        self.outer_layout.addWidget(self.hourly_panel, 3)
 
         self.weekly_panel = QFrame()
         self.weekly_panel.setObjectName("panel")
@@ -422,7 +421,6 @@ class DashboardWindow(QMainWindow):
         self.session_panel.setMinimumHeight(145)
         self.session_panel.setMaximumHeight(185)
         self.todo_panel.setMinimumHeight(145)
-        self.todo_panel.setMaximumHeight(185)
         self.weekly_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
@@ -433,7 +431,7 @@ class DashboardWindow(QMainWindow):
         )
         self.todo_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
         )
         lower_container = QWidget()
         lower_container.setMinimumHeight(145)
@@ -443,8 +441,18 @@ class DashboardWindow(QMainWindow):
         lower_row.setSpacing(12)
         lower_row.addWidget(self.weekly_panel, 3)
         lower_row.addWidget(self.session_panel, 8)
-        lower_row.addWidget(self.todo_panel, 3)
-        self.outer_layout.addWidget(lower_container)
+
+        content_layout = QGridLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setHorizontalSpacing(12)
+        content_layout.setVerticalSpacing(12)
+        content_layout.addWidget(self.hourly_panel, 0, 0)
+        content_layout.addWidget(lower_container, 1, 0)
+        content_layout.addWidget(self.todo_panel, 0, 1, 2, 1)
+        content_layout.setColumnStretch(0, 11)
+        content_layout.setColumnStretch(1, 3)
+        content_layout.setRowStretch(0, 1)
+        self.outer_layout.addLayout(content_layout, 3)
 
         self.footer_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.privacy_label = QLabel(
