@@ -364,8 +364,15 @@ class DashboardWindow(QMainWindow):
         todo_title.setObjectName("sectionTitle")
         self.todo_count_label = QLabel("0개")
         self.todo_count_label.setObjectName("muted")
+        self.delete_todo_button = QPushButton("삭제")
+        self.delete_todo_button.setObjectName("deleteTodoButton")
+        self.delete_todo_button.setToolTip("선택한 Todo 삭제")
+        self.delete_todo_button.setFixedWidth(46)
+        self.delete_todo_button.setEnabled(False)
+        self.delete_todo_button.clicked.connect(self._delete_selected_todo)
         todo_header.addWidget(todo_title)
         todo_header.addStretch()
+        todo_header.addWidget(self.delete_todo_button)
         todo_header.addWidget(self.todo_count_label)
         todo_layout.addLayout(todo_header)
 
@@ -377,6 +384,11 @@ class DashboardWindow(QMainWindow):
         )
         self.todo_list.setToolTip("체크하면 현재 업무 세션에 기록 · 더블클릭하면 이름 수정")
         self.todo_list.itemChanged.connect(self._todo_item_changed)
+        self.todo_list.currentItemChanged.connect(
+            lambda current, _previous: self.delete_todo_button.setEnabled(
+                current is not None
+            )
+        )
         todo_layout.addWidget(self.todo_list)
 
         todo_input_row = QHBoxLayout()
@@ -475,6 +487,8 @@ class DashboardWindow(QMainWindow):
             QPushButton:hover, QComboBox:hover, QLineEdit:focus { background: #253150; }
             QPushButton#pauseButton { background: #263456; min-width: 110px; }
             QPushButton#addTodoButton { font-size: 18px; font-weight: 600; padding: 2px; }
+            QPushButton#deleteTodoButton { font-size: 11px; padding: 3px 5px; }
+            QPushButton#deleteTodoButton:disabled { color: #59657d; background: #151c2f; }
             QComboBox QLineEdit { background: transparent; border: 0; color: #f3f6ff; padding: 0 4px; }
             QComboBox QAbstractItemView { background: #151c2f; border: 1px solid #33405e; selection-background-color: #263456; padding: 4px; }
             QTableWidget { background: transparent; border: 0; gridline-color: #25304a; alternate-background-color: #11182a; }
@@ -614,6 +628,26 @@ class DashboardWindow(QMainWindow):
         self.todo_input.clear()
         self._refresh_todos(force=True)
         self._refresh()
+
+    def _delete_selected_todo(self) -> None:
+        item = self.todo_list.currentItem()
+        if item is None:
+            return
+        todo_id = int(item.data(Qt.ItemDataRole.UserRole))
+        title = item.text().strip()
+        answer = QMessageBox.question(
+            self,
+            "Todo 삭제",
+            f"'{title}'을(를) Todo 목록에서 삭제할까요?\n\n과거 업무 세션 기록은 유지됩니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.store.delete_todo(todo_id)
+        self._refresh_todos(force=True)
+        self._refresh()
+        self.todo_input.setFocus()
 
     def _todo_item_changed(self, item: QListWidgetItem) -> None:
         if self._loading_todos:

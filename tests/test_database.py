@@ -58,6 +58,15 @@ class ActivityStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.add_todo("   ")
 
+    def test_deleting_todo_keeps_historical_session_note(self) -> None:
+        todo = self.store.add_todo("배포 준비")
+        self.store.append_session_note(3_000, todo.title)
+
+        self.store.delete_todo(todo.id)
+
+        self.assertEqual(self.store.list_todos(), [])
+        self.assertEqual(self.store.get_session_notes([3_000])[3_000], "배포 준비")
+
 
 if __name__ == "__main__":
     unittest.main()

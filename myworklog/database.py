@@ -216,6 +216,11 @@ class ActivityStore:
                 (clean_title, todo_id),
             )
 
+    def delete_todo(self, todo_id: int) -> None:
+        """Delete a Todo without touching historical session note text."""
+        with self.session() as connection:
+            connection.execute("DELETE FROM todos WHERE id = ?", (todo_id,))
+
     def get_session_notes(self, session_starts: Iterable[int]) -> dict[int, str]:
         starts = list(dict.fromkeys(int(value) for value in session_starts))
         if not starts:
