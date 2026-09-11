@@ -483,6 +483,15 @@ class DashboardWindow(QMainWindow):
             QListWidget { background: transparent; border: 0; outline: 0; }
             QListWidget::item { padding: 4px 2px; border-bottom: 1px solid #202a42; }
             QListWidget::item:hover { background: #1b2540; }
+            QTableWidget QLineEdit, QListWidget QLineEdit {
+                background: #0f1628;
+                color: #ffffff;
+                selection-background-color: #6d8cff;
+                selection-color: #ffffff;
+                border: 1px solid #6d8cff;
+                border-radius: 3px;
+                padding: 1px 4px;
+            }
             QAbstractScrollArea::corner { background: #151c2f; }
             QScrollBar:vertical { background: #0f1628; width: 11px; margin: 0; border: 0; }
             QScrollBar::handle:vertical { background: #3a496c; min-height: 28px; border-radius: 5px; }
