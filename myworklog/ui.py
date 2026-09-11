@@ -506,6 +506,22 @@ class DashboardWindow(QMainWindow):
                 border-radius: 3px;
                 padding: 1px 4px;
             }
+            QMessageBox { background-color: #151c2f; }
+            QMessageBox QLabel {
+                background: transparent;
+                color: #f3f6ff;
+                min-width: 300px;
+                padding: 2px;
+            }
+            QMessageBox QPushButton {
+                background: #263456;
+                color: #f3f6ff;
+                border: 1px solid #435478;
+                border-radius: 7px;
+                min-width: 70px;
+                padding: 7px 12px;
+            }
+            QMessageBox QPushButton:hover { background: #33456f; }
             QAbstractScrollArea::corner { background: #151c2f; }
             QScrollBar:vertical { background: #0f1628; width: 11px; margin: 0; border: 0; }
             QScrollBar::handle:vertical { background: #3a496c; min-height: 28px; border-radius: 5px; }
@@ -635,14 +651,21 @@ class DashboardWindow(QMainWindow):
             return
         todo_id = int(item.data(Qt.ItemDataRole.UserRole))
         title = item.text().strip()
-        answer = QMessageBox.question(
-            self,
-            "Todo 삭제",
-            f"'{title}'을(를) Todo 목록에서 삭제할까요?\n\n과거 업무 세션 기록은 유지됩니다.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+        message_box = QMessageBox(self)
+        message_box.setWindowTitle("Todo 삭제")
+        message_box.setIcon(QMessageBox.Icon.Question)
+        message_box.setText(f"'{title}'을 Todo 목록에서 삭제할까요?")
+        message_box.setInformativeText("과거 업무 세션 기록은 유지됩니다.")
+        delete_button = message_box.addButton(
+            "삭제", QMessageBox.ButtonRole.DestructiveRole
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        cancel_button = message_box.addButton(
+            "취소", QMessageBox.ButtonRole.RejectRole
+        )
+        message_box.setDefaultButton(cancel_button)
+        message_box.setEscapeButton(cancel_button)
+        message_box.exec()
+        if message_box.clickedButton() is not delete_button:
             return
         self.store.delete_todo(todo_id)
         self._refresh_todos(force=True)

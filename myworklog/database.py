@@ -173,7 +173,7 @@ class ActivityStore:
                 """
                 SELECT id, title, completed, created_at
                 FROM todos
-                ORDER BY completed ASC, created_at ASC, id ASC
+                ORDER BY completed ASC, created_at DESC, id DESC
                 """
             ).fetchall()
         return [

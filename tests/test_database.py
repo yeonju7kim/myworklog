@@ -67,6 +67,15 @@ class ActivityStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_todos(), [])
         self.assertEqual(self.store.get_session_notes([3_000])[3_000], "배포 준비")
 
+    def test_new_todo_appears_at_top(self) -> None:
+        self.store.add_todo("먼저 만든 일")
+        self.store.add_todo("나중에 만든 일")
+
+        self.assertEqual(
+            [todo.title for todo in self.store.list_todos()],
+            ["나중에 만든 일", "먼저 만든 일"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
