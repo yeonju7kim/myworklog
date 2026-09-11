@@ -81,6 +81,14 @@ class ActivityTracker:
         else:
             self._paused.clear()
 
+    def mark_app_activity(self) -> int | None:
+        """Ensure an in-app action belongs to the current work session."""
+        if self.paused:
+            return None
+        timestamp = int(time.time())
+        self._record("mouse", timestamp)
+        return timestamp
+
     def start(self) -> None:
         if self._writer_thread and self._writer_thread.is_alive():
             return

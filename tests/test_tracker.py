@@ -48,6 +48,17 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual((row.key_count, row.click_count, row.mouse_samples), (1, 1, 1))
         self.assertEqual((row.first_event, row.last_event), (1_000, 1_002))
 
+    def test_app_activity_creates_a_session_signal(self) -> None:
+        timestamp = self.tracker.mark_app_activity()
+        self.tracker.flush()
+
+        self.assertIsNotNone(timestamp)
+        rows = self.store.fetch_range(0, 2**31)
+        self.assertEqual(sum(row.mouse_samples for row in rows), 1)
+
+        self.tracker.set_paused(True)
+        self.assertIsNone(self.tracker.mark_app_activity())
+
 
 if __name__ == "__main__":
     unittest.main()

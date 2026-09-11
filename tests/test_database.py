@@ -33,7 +33,31 @@ class ActivityStoreTests(unittest.TestCase):
         self.store.set_setting("idle_minutes", "20")
         self.assertEqual(self.store.get_setting("idle_minutes", "10"), "20")
 
+    def test_todos_and_session_notes_round_trip(self) -> None:
+        first = self.store.add_todo("보고서 작성")
+        second = self.store.add_todo("이메일 답장")
+        self.store.set_todo_completed(second.id, True)
+        self.store.update_todo_title(first.id, "주간 보고서")
+        self.store.append_session_note(1_000, "주간 보고서")
+        self.store.append_session_note(1_000, "이메일 답장")
+        self.store.append_session_note(1_000, "주간 보고서")
+
+        todos = self.store.list_todos()
+        notes = self.store.get_session_notes([1_000, 2_000])
+
+        self.assertEqual([todo.title for todo in todos], ["주간 보고서", "이메일 답장"])
+        self.assertFalse(todos[0].completed)
+        self.assertTrue(todos[1].completed)
+        self.assertEqual(notes[1_000], "주간 보고서, 이메일 답장")
+        self.assertNotIn(2_000, notes)
+
+        self.store.set_session_note(1_000, "직접 수정한 업무")
+        self.assertEqual(self.store.get_session_notes([1_000])[1_000], "직접 수정한 업무")
+
+    def test_empty_todo_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self.store.add_todo("   ")
+
 
 if __name__ == "__main__":
     unittest.main()
-

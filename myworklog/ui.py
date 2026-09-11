@@ -15,6 +15,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QBoxLayout,
     QCheckBox,
     QComboBox,
@@ -23,6 +24,9 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -36,7 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from .autostart import is_autostart_enabled, set_autostart_enabled
-from .database import ActivityStore
+from .database import ActivityStore, TodoItem
 from .stats import DayStats, get_daily_key_totals, get_day_stats
 from .tracker import ActivityTracker
 
@@ -52,6 +56,9 @@ COLORS = {
     "grid": QColor("#2b3651"),
     "green": QColor("#43d39e"),
 }
+
+TODO_TITLE_ROLE = Qt.ItemDataRole.UserRole.value + 1
+TODO_COMPLETED_ROLE = Qt.ItemDataRole.UserRole.value + 2
 
 
 def _format_number(value: int) -> str:
@@ -173,7 +180,7 @@ class WeekChart(QWidget):
             painter.end()
             return
         width, height = self.width(), self.height()
-        left, right, top, bottom = 18, 12, 18, 38
+        left, right, top, bottom = 6, 6, 18, 38
         chart_width = max(1, width - left - right)
         chart_height = max(1, height - top - bottom)
         maximum = max((value for _, value in self._values), default=0)
@@ -182,7 +189,7 @@ class WeekChart(QWidget):
         bar_width = max(10.0, slot * 0.52)
         today = date.today()
         weekdays = "월화수목금토일"
-        painter.setFont(QFont("Malgun Gothic", 8))
+        painter.setFont(QFont("Malgun Gothic", 7 if chart_width < 150 else 8))
         for index, (day, value) in enumerate(self._values):
             bar_height = chart_height * value / ceiling
             x = left + index * slot + (slot - bar_width) / 2
@@ -214,6 +221,9 @@ class DashboardWindow(QMainWindow):
         self.selected_day = date.today()
         self._quitting = False
         self._tray_notice_shown = False
+        self._todos: list[TodoItem] = []
+        self._loading_todos = False
+        self._loading_sessions = False
         self.idle_minutes = int(store.get_setting("idle_minutes", "10"))
 
         self.setWindowTitle("MyWorkLog")
@@ -300,7 +310,7 @@ class DashboardWindow(QMainWindow):
         self.weekly_panel = QFrame()
         self.weekly_panel.setObjectName("panel")
         right_layout = QVBoxLayout(self.weekly_panel)
-        right_layout.setContentsMargins(18, 16, 18, 14)
+        right_layout.setContentsMargins(12, 12, 12, 10)
         week_title = QLabel("최근 7일")
         week_title.setObjectName("sectionTitle")
         right_layout.addWidget(week_title)
@@ -309,7 +319,7 @@ class DashboardWindow(QMainWindow):
         self.session_panel = QFrame()
         self.session_panel.setObjectName("panel")
         session_layout = QVBoxLayout(self.session_panel)
-        session_layout.setContentsMargins(18, 14, 18, 12)
+        session_layout.setContentsMargins(12, 12, 12, 10)
         session_header = QHBoxLayout()
         session_title = QLabel("업무 세션")
         session_title.setObjectName("sectionTitle")
@@ -327,28 +337,77 @@ class DashboardWindow(QMainWindow):
 
         self.session_table = QTableWidget(0, 5)
         self.session_table.setHorizontalHeaderLabels(
-            ["시작", "마지막 활동", "세션 길이", "활동한 분", "키 입력"]
+            ["시작", "마지막 활동", "세션 길이", "키 입력", "수행 업무"]
         )
         table_header = self.session_table.horizontalHeader()
         for column in range(4):
             table_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         table_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.session_table.verticalHeader().setVisible(False)
-        self.session_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.session_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.session_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.session_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.session_table.itemChanged.connect(self._session_item_changed)
         self.session_table.setMinimumHeight(82)
         self.session_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         session_layout.addWidget(self.session_table)
+
+        self.todo_panel = QFrame()
+        self.todo_panel.setObjectName("panel")
+        todo_layout = QVBoxLayout(self.todo_panel)
+        todo_layout.setContentsMargins(14, 12, 14, 10)
+        todo_layout.setSpacing(7)
+        todo_header = QHBoxLayout()
+        todo_title = QLabel("Todo List")
+        todo_title.setObjectName("sectionTitle")
+        self.todo_count_label = QLabel("0개")
+        self.todo_count_label.setObjectName("muted")
+        todo_header.addWidget(todo_title)
+        todo_header.addStretch()
+        todo_header.addWidget(self.todo_count_label)
+        todo_layout.addLayout(todo_header)
+
+        self.todo_list = QListWidget()
+        self.todo_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.todo_list.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.todo_list.setToolTip("체크하면 현재 업무 세션에 기록 · 더블클릭하면 이름 수정")
+        self.todo_list.itemChanged.connect(self._todo_item_changed)
+        todo_layout.addWidget(self.todo_list)
+
+        todo_input_row = QHBoxLayout()
+        todo_input_row.setSpacing(6)
+        self.todo_input = QLineEdit()
+        self.todo_input.setPlaceholderText("할 일 추가")
+        self.todo_input.setMaxLength(100)
+        self.todo_input.returnPressed.connect(self._add_todo)
+        add_todo_button = QPushButton("+")
+        add_todo_button.setObjectName("addTodoButton")
+        add_todo_button.setFixedWidth(34)
+        add_todo_button.clicked.connect(self._add_todo)
+        todo_input_row.addWidget(self.todo_input)
+        todo_input_row.addWidget(add_todo_button)
+        todo_layout.addLayout(todo_input_row)
 
         self.weekly_panel.setMinimumHeight(145)
         self.weekly_panel.setMaximumHeight(185)
         self.session_panel.setMinimumHeight(145)
         self.session_panel.setMaximumHeight(185)
+        self.todo_panel.setMinimumHeight(145)
+        self.todo_panel.setMaximumHeight(185)
         self.weekly_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
         )
         self.session_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.todo_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
         )
@@ -358,13 +417,14 @@ class DashboardWindow(QMainWindow):
         lower_row = QHBoxLayout(lower_container)
         lower_row.setContentsMargins(0, 0, 0, 0)
         lower_row.setSpacing(12)
-        lower_row.addWidget(self.weekly_panel, 1)
-        lower_row.addWidget(self.session_panel, 2)
+        lower_row.addWidget(self.weekly_panel, 3)
+        lower_row.addWidget(self.session_panel, 8)
+        lower_row.addWidget(self.todo_panel, 3)
         self.outer_layout.addWidget(lower_container)
 
         self.footer_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.privacy_label = QLabel(
-            "로컬 저장 · 글자, 좌표, 창 제목은 수집하지 않음"
+            "자동 내용 수집 없음 · Todo 제목만 로컬 저장"
         )
         self.privacy_label.setObjectName("muted")
         self.privacy_label.setWordWrap(False)
@@ -411,12 +471,18 @@ class DashboardWindow(QMainWindow):
             QLabel#muted { color: #8f9bb3; }
             QLabel#cardValue { font-size: 21px; font-weight: 700; }
             QFrame#card, QFrame#panel { background: #151c2f; border: 1px solid #25304a; border-radius: 12px; }
-            QPushButton, QComboBox { background: #1b2540; border: 1px solid #33405e; border-radius: 8px; padding: 7px 11px; }
-            QPushButton:hover, QComboBox:hover { background: #253150; }
+            QPushButton, QComboBox, QLineEdit { background: #1b2540; border: 1px solid #33405e; border-radius: 8px; padding: 7px 11px; }
+            QPushButton:hover, QComboBox:hover, QLineEdit:focus { background: #253150; }
             QPushButton#pauseButton { background: #263456; min-width: 110px; }
+            QPushButton#addTodoButton { font-size: 18px; font-weight: 600; padding: 2px; }
+            QComboBox QLineEdit { background: transparent; border: 0; color: #f3f6ff; padding: 0 4px; }
+            QComboBox QAbstractItemView { background: #151c2f; border: 1px solid #33405e; selection-background-color: #263456; padding: 4px; }
             QTableWidget { background: transparent; border: 0; gridline-color: #25304a; alternate-background-color: #11182a; }
             QHeaderView::section { background: #1b2540; color: #aab4c8; border: 0; border-bottom: 1px solid #33405e; padding: 7px; }
             QTableWidget::item { padding: 6px; border-bottom: 1px solid #202a42; }
+            QListWidget { background: transparent; border: 0; outline: 0; }
+            QListWidget::item { padding: 4px 2px; border-bottom: 1px solid #202a42; }
+            QListWidget::item:hover { background: #1b2540; }
             QAbstractScrollArea::corner { background: #151c2f; }
             QScrollBar:vertical { background: #0f1628; width: 11px; margin: 0; border: 0; }
             QScrollBar::handle:vertical { background: #3a496c; min-height: 28px; border-radius: 5px; }
@@ -440,6 +506,7 @@ class DashboardWindow(QMainWindow):
     def _refresh(self) -> None:
         # Include up to the latest 10 seconds of buffered activity.
         self.tracker.flush()
+        self._refresh_todos()
         stats = get_day_stats(self.store, self.selected_day, self.idle_minutes)
         self._render_stats(stats)
         week_start = self.selected_day - timedelta(days=6)
@@ -460,25 +527,122 @@ class DashboardWindow(QMainWindow):
             self.peak_label.setText(f"피크 {stats.busiest_hour:02d}시")
         self.hourly_chart.set_values(stats.hourly_keys)
 
-        self.session_table.setRowCount(len(stats.sessions))
-        now = int(time.time())
-        for row_index, session in enumerate(stats.sessions):
-            ongoing = (
-                stats.day == date.today()
-                and row_index == len(stats.sessions) - 1
-                and now - session.end <= self.idle_minutes * 60
-            )
-            values = (
-                _format_clock(session.start),
-                "진행 중" if ongoing else _format_clock(session.end),
-                _format_duration(session.span_seconds),
-                f"{session.active_minutes}분",
-                _format_number(session.key_count),
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.session_table.setItem(row_index, column, item)
+        notes = self.store.get_session_notes(
+            session.start for session in stats.sessions
+        )
+        self._loading_sessions = True
+        try:
+            self.session_table.setRowCount(len(stats.sessions))
+            now = int(time.time())
+            for row_index, session in enumerate(stats.sessions):
+                ongoing = (
+                    stats.day == date.today()
+                    and row_index == len(stats.sessions) - 1
+                    and now - session.end <= self.idle_minutes * 60
+                )
+                values = (
+                    _format_clock(session.start),
+                    "진행 중" if ongoing else _format_clock(session.end),
+                    _format_duration(session.span_seconds),
+                    _format_number(session.key_count),
+                )
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    if column == 2:
+                        item.setToolTip(
+                            f"실제 입력이 있던 시간: {session.active_minutes}분"
+                        )
+                    self.session_table.setItem(row_index, column, item)
+
+                note_item = QTableWidgetItem(notes.get(session.start, ""))
+                note_item.setData(Qt.ItemDataRole.UserRole, session.start)
+                note_item.setToolTip("Todo 체크 시 자동 추가 · 더블클릭해서 직접 수정")
+                self.session_table.setItem(row_index, 4, note_item)
+        finally:
+            self._loading_sessions = False
+
+    def _refresh_todos(self, force: bool = False) -> None:
+        todos = self.store.list_todos()
+        if not force and todos == self._todos:
+            return
+        self._todos = todos
+        self._loading_todos = True
+        try:
+            self.todo_list.clear()
+            for todo in todos:
+                item = QListWidgetItem(todo.title)
+                item.setData(Qt.ItemDataRole.UserRole, todo.id)
+                item.setData(TODO_TITLE_ROLE, todo.title)
+                item.setData(TODO_COMPLETED_ROLE, todo.completed)
+                item.setFlags(
+                    item.flags()
+                    | Qt.ItemFlag.ItemIsUserCheckable
+                    | Qt.ItemFlag.ItemIsEditable
+                )
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if todo.completed
+                    else Qt.CheckState.Unchecked
+                )
+                font = item.font()
+                font.setStrikeOut(todo.completed)
+                item.setFont(font)
+                if todo.completed:
+                    item.setForeground(COLORS["muted"])
+                self.todo_list.addItem(item)
+        finally:
+            self._loading_todos = False
+        active_count = sum(not todo.completed for todo in todos)
+        self.todo_count_label.setText(f"{active_count}개")
+
+    def _add_todo(self) -> None:
+        title = self.todo_input.text().strip()
+        if not title:
+            return
+        self.store.add_todo(title)
+        self.todo_input.clear()
+        self._refresh_todos(force=True)
+        self._refresh()
+
+    def _todo_item_changed(self, item: QListWidgetItem) -> None:
+        if self._loading_todos:
+            return
+        todo_id = int(item.data(Qt.ItemDataRole.UserRole))
+        previous_title = str(item.data(TODO_TITLE_ROLE))
+        previous_completed = bool(item.data(TODO_COMPLETED_ROLE))
+        title = item.text().strip()
+        if not title:
+            self._loading_todos = True
+            item.setText(previous_title)
+            self._loading_todos = False
+            return
+
+        completed = item.checkState() == Qt.CheckState.Checked
+        if title != previous_title:
+            self.store.update_todo_title(todo_id, title)
+        if completed != previous_completed:
+            self.store.set_todo_completed(todo_id, completed)
+            if completed:
+                self._record_todo_in_current_session(title)
+        self._refresh_todos(force=True)
+        self._refresh()
+
+    def _record_todo_in_current_session(self, title: str) -> None:
+        if self.tracker.mark_app_activity() is None:
+            return
+        self.tracker.flush()
+        today_stats = get_day_stats(self.store, date.today(), self.idle_minutes)
+        if today_stats.sessions:
+            self.store.append_session_note(today_stats.sessions[-1].start, title)
+
+    def _session_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._loading_sessions or item.column() != 4:
+            return
+        session_start = item.data(Qt.ItemDataRole.UserRole)
+        if session_start is not None:
+            self.store.set_session_note(int(session_start), item.text())
 
     def _move_day(self, offset: int) -> None:
         candidate = self.selected_day + timedelta(days=offset)
